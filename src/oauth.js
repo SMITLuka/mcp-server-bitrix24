@@ -50,6 +50,14 @@ oauthRouter.get("/callback", async (req, res) => {
       throw new Error(tokenData.error_description || tokenData.error);
     }
 
+    console.log("Bitrix24 token response keys:", Object.keys(tokenData));
+
+    if (!tokenData.access_token || !tokenData.refresh_token) {
+      throw new Error(
+        `Unexpected token response shape from Bitrix24 (missing access_token/refresh_token). Raw response: ${JSON.stringify(tokenData)}`
+      );
+    }
+
     let bitrixUserId = null;
     let bitrixUserName = null;
     try {
