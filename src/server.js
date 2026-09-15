@@ -72,16 +72,14 @@ async function main() {
   // Handles /interaction/:uid — bounces the browser into Bitrix24 login.
   app.use(createInteractionRouter(provider));
 
-  // oidc-provider's own routes: /auth, /token, /reg, /jwks,
-  // /.well-known/openid-configuration, etc. Mounted before express.json()
-  // because it parses bodies itself.
-  app.use(provider.callback());
-
-  app.use(express.json());
+  // GET-only routes, no body parsing needed.
   app.use("/oauth", createOauthRouter(provider));
 
   // Stateless MCP endpoint: one transport per request, tools scoped to the authenticated employee.
-  app.post("/mcp", async (req, res) => {
+  // express.json() is scoped to just this route so it never consumes the
+  // body of requests meant for oidc-provider below (e.g. DCR's
+  // application/json POST to /reg).
+  app.post("/mcp", express.json(), async (req, res) => {
     const employee = await authenticate(req, res, provider);
     if (!employee) return;
 
@@ -100,6 +98,13 @@ async function main() {
   app.get("/mcp", (_req, res) => {
     res.status(405).json({ error: "Method not allowed. This server runs in stateless mode (POST only)." });
   });
+
+  // Everything else falls through to oidc-provider's own routes: /auth,
+  // /token, /reg, /jwks, /.well-known/openid-configuration, /session/*, etc.
+  // Must be LAST — it's a Koa app that answers every request it receives
+  // with its own 404 instead of calling next(), so anything mounted after
+  // this line would never be reached.
+  app.use(provider.callback());
 
   app.listen(config.port, () => {
     console.log(`Bitrix24 MCP server listening on port ${config.port}`);
