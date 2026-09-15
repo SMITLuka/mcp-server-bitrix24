@@ -22,6 +22,22 @@ export async function createOidcProvider() {
       devInteractions: { enabled: false },
       revocation: { enabled: true },
       introspection: { enabled: true },
+
+      // MCP clients (per the MCP Authorization spec) send a `resource` param
+      // (RFC 8707) to bind the token to this specific MCP server. We only
+      // ever have the one resource, so this just needs to recognize and
+      // accept it rather than implement real multi-resource audience
+      // separation.
+      resourceIndicators: {
+        enabled: true,
+        defaultResource: () => `${config.baseUrl}/mcp`,
+        getResourceServerInfo: (ctx, resourceIndicator) => {
+          if (resourceIndicator !== `${config.baseUrl}/mcp`) {
+            throw new Provider.errors.InvalidTarget();
+          }
+          return { scope: "bitrix24", accessTokenFormat: "opaque" };
+        },
+      },
     },
 
     pkce: { required: () => true },
