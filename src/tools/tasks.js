@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { callBitrix } from "../bitrixClient.js";
+import { getEmployeeById } from "../db.js";
 
 export function registerTaskTools(server, employeeId) {
   server.tool(
@@ -7,7 +8,16 @@ export function registerTaskTools(server, employeeId) {
     "List the current Bitrix24 user's tasks",
     { status: z.enum(["all", "pending", "completed"]).optional() },
     async ({ status = "all" }) => {
-      const filter = status === "pending" ? { REAL_STATUS: [2, 3] } : status === "completed" ? { REAL_STATUS: 5 } : {};
+      const employee = getEmployeeById(employeeId);
+
+      // tasks.task.list with no RESPONSIBLE_ID filter returns everything the
+      // access token's permission level can see (which for anyone with
+      // elevated/admin rights in Bitrix can mean *other people's* tasks too)
+      // rather than just tasks assigned to this specific employee.
+      const filter = { RESPONSIBLE_ID: employee.bitrix_user_id };
+      if (status === "pending") filter.REAL_STATUS = [2, 3];
+      if (status === "completed") filter.REAL_STATUS = 5;
+
       const result = await callBitrix(employeeId, "tasks.task.list", {
         filter,
         select: ["ID", "TITLE", "STATUS", "DEADLINE"],
