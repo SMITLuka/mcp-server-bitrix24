@@ -95,6 +95,8 @@ export function createOauthRouter(provider) {
           bitrix_user_name: bitrixUser.name,
         });
 
+        console.log(`[/oauth/callback] resuming OIDC interaction, accountId=${bitrixUser.id}`);
+
         // Hands control back to oidc-provider, which issues its own
         // authorization code and redirects the browser back to Claude.
         return await provider.interactionFinished(
@@ -122,6 +124,7 @@ export function createOauthRouter(provider) {
         `<p>Bitrix24 account connected${bitrixUser.name ? ` as <b>${bitrixUser.name}</b>` : ""}. You can close this tab and return to Claude Code.</p>`
       );
     } catch (err) {
+      console.error("[/oauth/callback] failed:", err);
       res.status(500).send(`Failed to complete Bitrix24 login: ${err.message}`);
     }
   });
