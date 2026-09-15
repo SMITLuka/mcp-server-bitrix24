@@ -5,9 +5,9 @@ import { getEmployeeById } from "../db.js";
 export function registerTaskTools(server, employeeId) {
   server.tool(
     "bitrix_list_my_tasks",
-    "List the current Bitrix24 user's tasks",
-    { status: z.enum(["all", "pending", "completed"]).optional() },
-    async ({ status = "all" }) => {
+    "List the current Bitrix24 user's tasks, most recent first",
+    { status: z.enum(["all", "pending", "completed"]).optional().describe("Defaults to 'pending'") },
+    async ({ status = "pending" }) => {
       const employee = getEmployeeById(employeeId);
 
       // tasks.task.list with no RESPONSIBLE_ID filter returns everything the
@@ -20,6 +20,7 @@ export function registerTaskTools(server, employeeId) {
 
       const result = await callBitrix(employeeId, "tasks.task.list", {
         filter,
+        order: { ID: "desc" }, // otherwise Bitrix defaults to oldest-first
         select: ["ID", "TITLE", "STATUS", "DEADLINE"],
       });
       return { content: [{ type: "text", text: JSON.stringify(result.tasks ?? result, null, 2) }] };
