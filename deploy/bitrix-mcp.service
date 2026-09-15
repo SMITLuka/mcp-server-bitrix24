@@ -1,0 +1,15 @@
+[Unit]
+Description=Bitrix24 MCP server
+After=network.target
+
+[Service]
+Type=simple
+User=bitrixmcp
+WorkingDirectory=/opt/bitrix-mcp-server
+EnvironmentFile=/opt/bitrix-mcp-server/.env
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

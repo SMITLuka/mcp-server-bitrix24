@@ -1,0 +1,3 @@
+mcp.sm-it.hr {
+    reverse_proxy localhost:3000
+}
