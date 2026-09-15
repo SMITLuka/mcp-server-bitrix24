@@ -16,7 +16,10 @@ export const config = {
 };
 
 export const bitrixUrls = {
+  // Authorization happens on the customer's own portal (that's where the user logs in),
+  // but token issuance/refresh is centralized on Bitrix's OAuth server even for
+  // self-hosted/local applications: https://apidocs.bitrix24.com/settings/oauth/index.html
   authorize: `https://${config.bitrixDomain}/oauth/authorize/`,
-  token: `https://${config.bitrixDomain}/oauth/token/`,
+  token: `https://oauth.bitrix.info/oauth/token/`,
   rest: (method) => `https://${config.bitrixDomain}/rest/${method}.json`,
 };
