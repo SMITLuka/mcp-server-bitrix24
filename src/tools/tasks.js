@@ -69,8 +69,11 @@ export function registerTaskTools(server, employeeId) {
       };
 
       // Bitrix24 has no "attach file to task" endpoint that takes raw content
-      // directly. The two-step dance: upload into the user's own Disk
-      // storage, then point the task's UF_TASK_WEBDAV_FILES field at it.
+      // directly. Two steps: upload into the user's own Disk storage, then
+      // link that Disk file to the task via the dedicated attach method.
+      // (UF_TASK_WEBDAV_FILES, the legacy approach, rejected both the Disk
+      // object ID and FILE_ID with "File could not be found" when tested
+      // live - it's evidently not compatible with Disk-API-uploaded files.)
       const storages = await step("disk.storage.getlist", () =>
         callBitrix(employeeId, "disk.storage.getlist", {
           filter: { ENTITY_TYPE: "user", ENTITY_ID: employee.bitrix_user_id },
@@ -90,34 +93,20 @@ export function registerTaskTools(server, employeeId) {
           data: { NAME: fileName },
         })
       );
-      // UF_TASK_WEBDAV_FILES is a legacy field that expects the old-style
-      // CFile ID (FILE_ID), not the Disk API's own object ID (ID) - confirmed
-      // by testing live, ID gives "File could not be found" on task update.
-      const uploadedFileId = uploaded?.FILE_ID ?? uploaded?.file?.FILE_ID;
-      if (!uploadedFileId) {
+      const diskObjectId = uploaded?.ID ?? uploaded?.file?.ID;
+      if (!diskObjectId) {
         throw new Error(`Unexpected upload response from Bitrix24: ${JSON.stringify(uploaded)}`);
       }
 
-      const taskResult = await step("tasks.task.get", () =>
-        callBitrix(employeeId, "tasks.task.get", {
+      const attachResult = await step("tasks.task.files.attach", () =>
+        callBitrix(employeeId, "tasks.task.files.attach", {
           taskId,
-          select: ["UF_TASK_WEBDAV_FILES"],
+          fileId: diskObjectId,
         })
-      );
-      const existingFileIds = taskResult?.task?.ufTaskWebdavFiles ?? taskResult?.task?.UF_TASK_WEBDAV_FILES ?? [];
-      const updateFields = { UF_TASK_WEBDAV_FILES: [...existingFileIds, uploadedFileId] };
-
-      const updateResult = await step(
-        `tasks.task.update [debug: uploadedFileId=${uploadedFileId} existingFileIds=${JSON.stringify(existingFileIds)} taskResultRaw=${JSON.stringify(taskResult)} sendingFields=${JSON.stringify(updateFields)}]`,
-        () =>
-          callBitrix(employeeId, "tasks.task.update", {
-            taskId,
-            fields: updateFields,
-          })
       );
 
       return {
-        content: [{ type: "text", text: JSON.stringify({ uploadedFileId, updateResult }, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify({ diskObjectId, attachResult }, null, 2) }],
       };
     }
   );
