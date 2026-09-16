@@ -105,12 +105,15 @@ export function registerTaskTools(server, employeeId) {
         })
       );
       const existingFileIds = taskResult?.task?.ufTaskWebdavFiles ?? taskResult?.task?.UF_TASK_WEBDAV_FILES ?? [];
+      const updateFields = { UF_TASK_WEBDAV_FILES: [...existingFileIds, uploadedFileId] };
 
-      const updateResult = await step("tasks.task.update", () =>
-        callBitrix(employeeId, "tasks.task.update", {
-          taskId,
-          fields: { UF_TASK_WEBDAV_FILES: [...existingFileIds, uploadedFileId] },
-        })
+      const updateResult = await step(
+        `tasks.task.update [debug: uploadedFileId=${uploadedFileId} existingFileIds=${JSON.stringify(existingFileIds)} taskResultRaw=${JSON.stringify(taskResult)} sendingFields=${JSON.stringify(updateFields)}]`,
+        () =>
+          callBitrix(employeeId, "tasks.task.update", {
+            taskId,
+            fields: updateFields,
+          })
       );
 
       return {
