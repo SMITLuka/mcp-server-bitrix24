@@ -94,6 +94,9 @@ export function registerTaskTools(server, employeeId) {
       if (!uploadedFileId) {
         throw new Error(`Unexpected upload response from Bitrix24: ${JSON.stringify(uploaded)}`);
       }
+      // TEMP DEBUG: surface exactly what we extracted + the raw shape, since
+      // tasks.task.update is rejecting the ID with "File could not be found".
+      const debugContext = ` [debug: uploadedFileId=${uploadedFileId} raw=${JSON.stringify(uploaded)}]`;
 
       const taskResult = await step("tasks.task.get", () =>
         callBitrix(employeeId, "tasks.task.get", {
@@ -103,7 +106,7 @@ export function registerTaskTools(server, employeeId) {
       );
       const existingFileIds = taskResult?.task?.ufTaskWebdavFiles ?? taskResult?.task?.UF_TASK_WEBDAV_FILES ?? [];
 
-      const updateResult = await step("tasks.task.update", () =>
+      const updateResult = await step("tasks.task.update" + debugContext, () =>
         callBitrix(employeeId, "tasks.task.update", {
           taskId,
           fields: { UF_TASK_WEBDAV_FILES: [...existingFileIds, uploadedFileId] },
