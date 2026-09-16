@@ -48,4 +48,55 @@ export function registerTaskTools(server, employeeId) {
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }
   );
+
+  server.tool(
+    "bitrix_attach_file_to_task",
+    "Upload a file and attach it to an existing Bitrix24 task",
+    {
+      taskId: z.string(),
+      fileName: z.string(),
+      fileContentBase64: z.string().describe("Base64-encoded file content"),
+    },
+    async ({ taskId, fileName, fileContentBase64 }) => {
+      const employee = getEmployeeById(employeeId);
+
+      // Bitrix24 has no "attach file to task" endpoint that takes raw content
+      // directly. The two-step dance: upload into the user's own Disk
+      // storage, then point the task's UF_TASK_WEBDAV_FILES field at it.
+      const storages = await callBitrix(employeeId, "disk.storage.getlist", {
+        filter: { ENTITY_TYPE: "user", ENTITY_ID: employee.bitrix_user_id },
+      });
+      const folderId = storages?.[0]?.ROOT_OBJECT_ID;
+      if (!folderId) {
+        throw new Error(
+          `Could not find a personal Bitrix Disk storage for this user. Raw response: ${JSON.stringify(storages)}`
+        );
+      }
+
+      const uploaded = await callBitrix(employeeId, "disk.folder.uploadfile", {
+        id: folderId,
+        fileContent: [fileName, fileContentBase64],
+        data: { NAME: fileName },
+      });
+      const uploadedFileId = uploaded?.ID ?? uploaded?.file?.ID;
+      if (!uploadedFileId) {
+        throw new Error(`Unexpected upload response from Bitrix24: ${JSON.stringify(uploaded)}`);
+      }
+
+      const taskResult = await callBitrix(employeeId, "tasks.task.get", {
+        taskId,
+        select: ["UF_TASK_WEBDAV_FILES"],
+      });
+      const existingFileIds = taskResult?.task?.ufTaskWebdavFiles ?? taskResult?.task?.UF_TASK_WEBDAV_FILES ?? [];
+
+      const updateResult = await callBitrix(employeeId, "tasks.task.update", {
+        taskId,
+        fields: { UF_TASK_WEBDAV_FILES: [...existingFileIds, uploadedFileId] },
+      });
+
+      return {
+        content: [{ type: "text", text: JSON.stringify({ uploadedFileId, updateResult }, null, 2) }],
+      };
+    }
+  );
 }
