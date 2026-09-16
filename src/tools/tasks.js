@@ -90,13 +90,13 @@ export function registerTaskTools(server, employeeId) {
           data: { NAME: fileName },
         })
       );
-      const uploadedFileId = uploaded?.ID ?? uploaded?.file?.ID;
+      // UF_TASK_WEBDAV_FILES is a legacy field that expects the old-style
+      // CFile ID (FILE_ID), not the Disk API's own object ID (ID) - confirmed
+      // by testing live, ID gives "File could not be found" on task update.
+      const uploadedFileId = uploaded?.FILE_ID ?? uploaded?.file?.FILE_ID;
       if (!uploadedFileId) {
         throw new Error(`Unexpected upload response from Bitrix24: ${JSON.stringify(uploaded)}`);
       }
-      // TEMP DEBUG: surface exactly what we extracted + the raw shape, since
-      // tasks.task.update is rejecting the ID with "File could not be found".
-      const debugContext = ` [debug: uploadedFileId=${uploadedFileId} raw=${JSON.stringify(uploaded)}]`;
 
       const taskResult = await step("tasks.task.get", () =>
         callBitrix(employeeId, "tasks.task.get", {
@@ -106,7 +106,7 @@ export function registerTaskTools(server, employeeId) {
       );
       const existingFileIds = taskResult?.task?.ufTaskWebdavFiles ?? taskResult?.task?.UF_TASK_WEBDAV_FILES ?? [];
 
-      const updateResult = await step("tasks.task.update" + debugContext, () =>
+      const updateResult = await step("tasks.task.update", () =>
         callBitrix(employeeId, "tasks.task.update", {
           taskId,
           fields: { UF_TASK_WEBDAV_FILES: [...existingFileIds, uploadedFileId] },
