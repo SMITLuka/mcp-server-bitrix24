@@ -44,9 +44,21 @@ export async function callBitrix(employeeId, method, params = {}) {
 
   const accessToken = await getValidAccessToken(employee);
 
-  const { data } = await axios.post(bitrixUrls.rest(method), params, {
-    params: { auth: accessToken },
-  });
+  let data;
+  try {
+    ({ data } = await axios.post(bitrixUrls.rest(method), params, {
+      params: { auth: accessToken },
+    }));
+  } catch (err) {
+    // Bitrix often returns its error/error_description JSON body alongside a
+    // non-2xx HTTP status, which axios otherwise hides behind a generic
+    // "Request failed with status code 4xx" message.
+    const body = err.response?.data;
+    if (body?.error) {
+      throw new Error(`Bitrix24 API error (${body.error}): ${body.error_description}`);
+    }
+    throw err;
+  }
 
   if (data.error) {
     throw new Error(`Bitrix24 API error (${data.error}): ${data.error_description}`);
