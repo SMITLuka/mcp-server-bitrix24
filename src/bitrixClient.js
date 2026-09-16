@@ -38,7 +38,7 @@ export async function getValidAccessToken(employee) {
   return refreshAccessToken(employee);
 }
 
-export async function callBitrix(employeeId, method, params = {}) {
+export async function callBitrix(employeeId, method, params = {}, { raw = false } = {}) {
   const employee = getEmployeeById(employeeId);
   if (!employee) throw new Error("Unknown employee");
 
@@ -64,5 +64,27 @@ export async function callBitrix(employeeId, method, params = {}) {
     throw new Error(`Bitrix24 API error (${data.error}): ${data.error_description}`);
   }
 
-  return data.result;
+  return raw ? data : data.result;
+}
+
+// Bitrix24 list methods (tasks.task.list, crm.lead.list, ...) page results
+// at 50 per call and only return further pages if you ask for them via
+// `start`. Loops until Bitrix stops reporting a `next` page or `maxItems`
+// is hit, so callers get everything instead of silently just the first 50.
+export async function callBitrixAllPages(employeeId, method, params, { maxItems = 500, resultKey } = {}) {
+  const items = [];
+  let start = 0;
+  let total;
+
+  while (true) {
+    const data = await callBitrix(employeeId, method, { ...params, start }, { raw: true });
+    total = data.total;
+    const page = resultKey ? data.result?.[resultKey] ?? [] : Array.isArray(data.result) ? data.result : [];
+    items.push(...page);
+
+    if (data.next === undefined || page.length === 0 || items.length >= maxItems) break;
+    start = data.next;
+  }
+
+  return { items: items.slice(0, maxItems), total };
 }

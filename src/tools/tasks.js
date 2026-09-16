@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { callBitrix } from "../bitrixClient.js";
+import { callBitrix, callBitrixAllPages } from "../bitrixClient.js";
 import { getEmployeeById } from "../db.js";
 
 export function registerTaskTools(server, employeeId) {
@@ -18,12 +18,22 @@ export function registerTaskTools(server, employeeId) {
       if (status === "pending") filter.REAL_STATUS = [2, 3];
       if (status === "completed") filter.REAL_STATUS = 5;
 
-      const result = await callBitrix(employeeId, "tasks.task.list", {
-        filter,
-        order: { ID: "desc" }, // otherwise Bitrix defaults to oldest-first
-        select: ["ID", "TITLE", "STATUS", "DEADLINE"],
-      });
-      return { content: [{ type: "text", text: JSON.stringify(result.tasks ?? result, null, 2) }] };
+      // tasks.task.list pages at 50 results per call - without looping
+      // through `next`, "all"/"completed" silently looked capped at 50
+      // even when the real count was higher.
+      const { items, total } = await callBitrixAllPages(
+        employeeId,
+        "tasks.task.list",
+        { filter, order: { ID: "desc" }, select: ["ID", "TITLE", "STATUS", "DEADLINE"] },
+        { resultKey: "tasks", maxItems: 300 }
+      );
+
+      const text =
+        total > items.length
+          ? `Showing ${items.length} of ${total} total tasks (capped).\n\n${JSON.stringify(items, null, 2)}`
+          : JSON.stringify(items, null, 2);
+
+      return { content: [{ type: "text", text }] };
     }
   );
 
