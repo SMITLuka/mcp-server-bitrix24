@@ -33,15 +33,16 @@ export function registerTaskTools(server, employeeId) {
     {
       title: z.string(),
       description: z.string().optional(),
-      responsibleId: z.string().optional(),
+      responsibleId: z.string().optional().describe("Defaults to the current user"),
       deadline: z.string().optional().describe("ISO date, e.g. 2026-09-30"),
     },
     async ({ title, description, responsibleId, deadline }) => {
+      const employee = getEmployeeById(employeeId);
       const result = await callBitrix(employeeId, "tasks.task.add", {
         fields: {
           TITLE: title,
           DESCRIPTION: description,
-          RESPONSIBLE_ID: responsibleId,
+          RESPONSIBLE_ID: responsibleId || employee.bitrix_user_id,
           DEADLINE: deadline,
         },
       });
