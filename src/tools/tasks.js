@@ -108,12 +108,33 @@ export function registerTaskTools(server, employeeId) {
         throw new Error(`Unexpected upload response from Bitrix24: ${JSON.stringify(uploaded)}`);
       }
 
-      const attachResult = await step("tasks.task.files.attach", () =>
-        callBitrix(employeeId, "tasks.task.files.attach", {
-          taskId,
-          fileId: diskObjectId,
-        })
-      );
+      // A freshly uploaded Disk object is sometimes not yet attachable -
+      // tasks.task.files.attach intermittently returns "Access denied" (error
+      // code 0) immediately after disk.folder.uploadfile, then succeeds a
+      // moment later on the exact same call. That pattern (fails once, works
+      // on retry, no config/scope change in between) points at Bitrix's Disk
+      // ACL/indexing for the new object not yet being fully propagated when
+      // the attach call lands - not a real permission problem. Retry a few
+      // times with a short backoff instead of surfacing the transient error.
+      const attachResult = await step("tasks.task.files.attach", async () => {
+        const maxAttempts = 4;
+        const baseDelayMs = 600;
+        let lastErr;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            return await callBitrix(employeeId, "tasks.task.files.attach", {
+              taskId,
+              fileId: diskObjectId,
+            });
+          } catch (err) {
+            lastErr = err;
+            const isAccessDenied = /Access denied/i.test(err.message);
+            if (!isAccessDenied || attempt === maxAttempts) throw err;
+            await new Promise((resolve) => setTimeout(resolve, baseDelayMs * attempt));
+          }
+        }
+        throw lastErr;
+      });
 
       return {
         content: [{ type: "text", text: JSON.stringify({ diskObjectId, attachResult }, null, 2) }],
