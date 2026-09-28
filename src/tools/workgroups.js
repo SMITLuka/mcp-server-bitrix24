@@ -28,8 +28,26 @@ export function registerWorkgroupTools(server, employeeId) {
     "List Bitrix24 workgroups/projects the current user belongs to",
     {},
     async () => {
-      const { items } = await callBitrixAllPages(employeeId, "sonet_group.get", { order: { NAME: "asc" } });
-      return { content: [{ type: "text", text: JSON.stringify(items, null, 2) }] };
+      // sonet_group.get returns ~20 verbose fields per group (permissions,
+      // dates, keywords...) and this account belongs to 100+ groups, which
+      // blew past the response size limit. Trim to what's actually useful.
+      const { items, total } = await callBitrixAllPages(employeeId, "sonet_group.get", {
+        order: { NAME: "asc" },
+      });
+      const trimmed = items.map((g) => ({
+        id: g.ID,
+        name: g.NAME,
+        isProject: g.PROJECT === "Y",
+        opened: g.OPENED === "Y",
+        members: g.NUMBER_OF_MEMBERS,
+      }));
+
+      const text =
+        total > trimmed.length
+          ? `Showing ${trimmed.length} of ${total} total (capped).\n\n${JSON.stringify(trimmed, null, 2)}`
+          : JSON.stringify(trimmed, null, 2);
+
+      return { content: [{ type: "text", text }] };
     }
   );
 }
