@@ -57,6 +57,12 @@ export async function callBitrix(employeeId, method, params = {}, { raw = false 
     if (body?.error) {
       throw new Error(`Bitrix24 API error (${body.error}): ${body.error_description}`);
     }
+    if (body) {
+      // Some methods (sonet_group.create among them) return a non-2xx status
+      // with a body that doesn't follow the usual error/error_description
+      // shape - surface it raw rather than axios's generic status-code message.
+      throw new Error(`Bitrix24 API HTTP ${err.response.status} for ${method}: ${JSON.stringify(body)}`);
+    }
     throw err;
   }
 
