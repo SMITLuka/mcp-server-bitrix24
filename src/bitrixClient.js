@@ -54,8 +54,11 @@ export async function callBitrix(employeeId, method, params = {}, { raw = false 
     // non-2xx HTTP status, which axios otherwise hides behind a generic
     // "Request failed with status code 4xx" message.
     const body = err.response?.data;
-    if (body?.error) {
-      throw new Error(`Bitrix24 API error (${body.error}): ${body.error_description}`);
+    // "error" can be present but an empty string (e.g. sonet_group.create's
+    // permission errors) while error_description still has the real
+    // message, so check for the key rather than truthiness of its value.
+    if (body && ("error" in body || "error_description" in body)) {
+      throw new Error(`Bitrix24 API error (${body.error || "?"}): ${body.error_description}`);
     }
     if (body) {
       // Some methods (sonet_group.create among them) return a non-2xx status
@@ -66,8 +69,8 @@ export async function callBitrix(employeeId, method, params = {}, { raw = false 
     throw err;
   }
 
-  if (data.error) {
-    throw new Error(`Bitrix24 API error (${data.error}): ${data.error_description}`);
+  if ("error" in data || "error_description" in data) {
+    throw new Error(`Bitrix24 API error (${data.error || "?"}): ${data.error_description}`);
   }
 
   return raw ? data : data.result;
