@@ -172,16 +172,26 @@ export function registerTaskTools(server, employeeId) {
         comments = [`Could not load comments: ${err.message}`];
       }
 
-      const fileIds = task.ufTaskWebdavFiles ?? task.UF_TASK_WEBDAV_FILES ?? [];
+      // UF_TASK_WEBDAV_FILES stores the disk.attachedObject ID returned by
+      // tasks.task.files.attach (the join record linking task <-> Disk file),
+      // not the Disk file's own ID - disk.file.get on it fails with
+      // ACCESS_DENIED since it isn't a valid file ID at all. Resolve through
+      // disk.attachedObject.get first to get the real underlying file.
+      const attachedIds = task.ufTaskWebdavFiles ?? task.UF_TASK_WEBDAV_FILES ?? [];
       let files = [];
-      if (fileIds.length) {
+      if (attachedIds.length) {
         files = await Promise.all(
-          fileIds.map(async (fileId) => {
+          attachedIds.map(async (attachedId) => {
             try {
-              const file = await callBitrix(employeeId, "disk.file.get", { id: fileId });
-              return { id: fileId, name: file?.NAME, downloadUrl: file?.DOWNLOAD_URL };
+              const attached = await callBitrix(employeeId, "disk.attachedObject.get", { id: attachedId });
+              const diskFileId = attached?.OBJECT_ID;
+              if (!diskFileId) {
+                return { attachedId, error: `Unexpected disk.attachedObject.get response: ${JSON.stringify(attached)}` };
+              }
+              const file = await callBitrix(employeeId, "disk.file.get", { id: diskFileId });
+              return { fileId: diskFileId, name: file?.NAME, downloadUrl: file?.DOWNLOAD_URL };
             } catch (err) {
-              return { id: fileId, error: err.message };
+              return { attachedId, error: err.message };
             }
           })
         );
