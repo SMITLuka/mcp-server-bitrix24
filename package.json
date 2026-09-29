@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "add-employee": "node scripts/add-employee.js"
+    "add-employee": "node scripts/add-employee.js",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "engines": {
     "node": ">=22.5.0"
