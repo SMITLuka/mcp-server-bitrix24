@@ -1,4 +1,5 @@
 import { z } from "zod";
+import axios from "axios";
 import { callBitrix, callBitrixAllPages } from "../bitrixClient.js";
 import { getEmployeeById } from "../db.js";
 
@@ -205,6 +206,49 @@ export function registerTaskTools(server, employeeId) {
             ),
           },
         ],
+      };
+    }
+  );
+
+  server.tool(
+    "bitrix_read_attachment",
+    "Download and read the content of a Bitrix24 Disk file (e.g. one attached to a task). Text files are returned as plain text, images as an image, other binary files as base64.",
+    { fileId: z.string().describe("Disk file ID, e.g. from bitrix_get_task's files list") },
+    async ({ fileId }) => {
+      const file = await callBitrix(employeeId, "disk.file.get", { id: fileId });
+      if (!file?.DOWNLOAD_URL) {
+        throw new Error(`Could not get a download URL for file ${fileId}. Raw response: ${JSON.stringify(file)}`);
+      }
+
+      // DOWNLOAD_URL already carries its own auth token, so this is a plain
+      // unauthenticated-from-our-side GET, not a callBitrix() REST call.
+      const response = await axios.get(file.DOWNLOAD_URL, { responseType: "arraybuffer" });
+      const buffer = Buffer.from(response.data);
+      const contentType = file.CONTENT_TYPE || response.headers["content-type"] || "application/octet-stream";
+
+      if (contentType.startsWith("image/")) {
+        return { content: [{ type: "image", data: buffer.toString("base64"), mimeType: contentType }] };
+      }
+
+      if (/^text\/|json|xml|csv/i.test(contentType)) {
+        const MAX_CHARS = 20000;
+        let text = buffer.toString("utf-8");
+        if (text.length > MAX_CHARS) {
+          text = `${text.slice(0, MAX_CHARS)}\n\n[truncated - file is ${buffer.length} bytes total]`;
+        }
+        return { content: [{ type: "text", text: `File: ${file.NAME} (${contentType})\n\n${text}` }] };
+      }
+
+      // Binary, non-image (PDF, docx, ...): base64 so Claude can still work with it.
+      const MAX_BASE64_CHARS = 200000;
+      let base64 = buffer.toString("base64");
+      let note = "";
+      if (base64.length > MAX_BASE64_CHARS) {
+        base64 = base64.slice(0, MAX_BASE64_CHARS);
+        note = ` [truncated - file is ${buffer.length} bytes total]`;
+      }
+      return {
+        content: [{ type: "text", text: `File: ${file.NAME} (${contentType}), base64-encoded${note}:\n\n${base64}` }],
       };
     }
   );
