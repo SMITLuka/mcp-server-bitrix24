@@ -141,4 +141,71 @@ export function registerTaskTools(server, employeeId) {
       };
     }
   );
+
+  server.tool(
+    "bitrix_get_task",
+    "Get full details of a single Bitrix24 task: description, comments, and attached files",
+    { taskId: z.string() },
+    async ({ taskId }) => {
+      const taskResult = await callBitrix(employeeId, "tasks.task.get", {
+        taskId,
+        select: ["ID", "TITLE", "DESCRIPTION", "STATUS", "DEADLINE", "RESPONSIBLE_ID", "UF_TASK_WEBDAV_FILES"],
+      });
+      const task = taskResult?.task;
+      if (!task) {
+        throw new Error(`Unexpected response from tasks.task.get: ${JSON.stringify(taskResult)}`);
+      }
+
+      // task.commentitem.getlist is the classic (non-"tasks.") comments API;
+      // there's no equivalent under tasks.task.* as of this Bitrix version.
+      let comments = [];
+      try {
+        const commentsResult = await callBitrix(employeeId, "task.commentitem.getlist", [taskId]);
+        comments = (commentsResult || []).map((c) => ({
+          id: c.ID,
+          author: c.AUTHOR_NAME,
+          date: c.POST_DATE,
+          text: c.POST_MESSAGE,
+        }));
+      } catch (err) {
+        comments = [`Could not load comments: ${err.message}`];
+      }
+
+      const fileIds = task.ufTaskWebdavFiles ?? task.UF_TASK_WEBDAV_FILES ?? [];
+      let files = [];
+      if (fileIds.length) {
+        files = await Promise.all(
+          fileIds.map(async (fileId) => {
+            try {
+              const file = await callBitrix(employeeId, "disk.file.get", { id: fileId });
+              return { id: fileId, name: file?.NAME, downloadUrl: file?.DOWNLOAD_URL };
+            } catch (err) {
+              return { id: fileId, error: err.message };
+            }
+          })
+        );
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                id: task.id ?? task.ID,
+                title: task.title ?? task.TITLE,
+                description: task.description ?? task.DESCRIPTION,
+                status: task.status ?? task.STATUS,
+                deadline: task.deadline ?? task.DEADLINE,
+                comments,
+                files,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  );
 }
