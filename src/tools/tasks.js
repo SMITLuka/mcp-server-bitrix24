@@ -240,7 +240,11 @@ export function registerTaskTools(server, employeeId) {
         return { content: [{ type: "image", data: buffer.toString("base64"), mimeType: contentType }] };
       }
 
-      if (/^text\/|json|xml|csv/i.test(contentType)) {
+      // Must be anchored: an unanchored "xml"/"json" match also fires on
+      // binary OOXML types like application/vnd.openxmlformats-officedocument...
+      // (the "xml" in "openxmlformats" is not a real XML content type) -
+      // confirmed live, it garbled a .docx by decoding it as UTF-8 text.
+      if (/^text\//i.test(contentType) || /^application\/(json|xml|csv)(;|$)/i.test(contentType)) {
         const MAX_CHARS = 20000;
         let text = buffer.toString("utf-8");
         if (text.length > MAX_CHARS) {
