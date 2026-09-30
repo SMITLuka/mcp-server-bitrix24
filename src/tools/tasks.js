@@ -150,7 +150,17 @@ export function registerTaskTools(server, employeeId) {
     async ({ taskId }) => {
       const taskResult = await callBitrix(employeeId, "tasks.task.get", {
         taskId,
-        select: ["ID", "TITLE", "DESCRIPTION", "STATUS", "DEADLINE", "RESPONSIBLE_ID", "UF_TASK_WEBDAV_FILES"],
+        select: [
+          "ID",
+          "TITLE",
+          "DESCRIPTION",
+          "STATUS",
+          "DEADLINE",
+          "RESPONSIBLE_ID",
+          "CREATED_BY",
+          "GROUP_ID",
+          "UF_TASK_WEBDAV_FILES",
+        ],
       });
       const task = taskResult?.task;
       if (!task) {
@@ -208,6 +218,12 @@ export function registerTaskTools(server, employeeId) {
                 description: task.description ?? task.DESCRIPTION,
                 status: task.status ?? task.STATUS,
                 deadline: task.deadline ?? task.DEADLINE,
+                responsibleId: task.responsibleId ?? task.RESPONSIBLE_ID,
+                createdBy: task.createdBy ?? task.CREATED_BY,
+                groupId: task.groupId ?? task.GROUP_ID,
+                // Bitrix's own view of what the current user may do to this
+                // task - useful for diagnosing "Access denied" on attach/edit.
+                allowedActions: task.action,
                 comments,
                 files,
               },
