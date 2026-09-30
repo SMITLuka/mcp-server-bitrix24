@@ -3,7 +3,7 @@ import { config, integrationHub } from "./config.js";
 import SqliteAdapter from "./oidcAdapter.js";
 import { loadOrCreateJwks } from "./jwks.js";
 import { getEmployeeByBitrixUserId } from "./db.js";
-import { callBitrix } from "./bitrixClient.js";
+import { callBitrix, callBitrixAllPages } from "./bitrixClient.js";
 
 const MCP_RESOURCE = `${config.baseUrl}/mcp`;
 const INTEGRATION_HUB_SCOPE = "integration-hub";
@@ -30,9 +30,6 @@ function isIntegrationHubClient(client) {
   return integrationHub.enabled && client?.clientId === integrationHub.clientId;
 }
 
-// Integration Hub restricts access to intranet employees; it needs the Bitrix user type for
-// that, which is looked up live on every token issue/refresh (so a user who is deactivated or
-// turned into an extranet user loses access within one access-token lifetime).
 // Resource selection, exported so the behaviour for Claude (MCP resource) and Integration Hub can be tested.
 export function defaultResource(ctx, client) {
   return isIntegrationHubClient(client) ? integrationHub.apiUrl : MCP_RESOURCE;
@@ -54,22 +51,51 @@ export function resourceServerInfo(ctx, resourceIndicator, client) {
   throw new errors.InvalidTarget();
 }
 
+// These lookups run inside the /token request: a hanging Bitrix must not hang the login. Only
+// these calls are time-limited; the shared callBitrix used by the MCP tools keeps its behaviour.
+function withTimeout(promise, what) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Bitrix24 ${what} timed out`)), BITRIX_LOOKUP_TIMEOUT_MS).unref()
+    ),
+  ]);
+}
+
+// Workgroup memberships decide Integration Hub's extra permissions. Only real memberships count
+// (A owner, E moderator, K member) - an allowlist, so pending requests/invitations (Z), banned
+// users (T) or any future role never grant anything. A failed lookup must not block the login:
+// the user then simply gets the base permissions, which only ever grants less.
+const MEMBER_ROLES = new Set(["A", "E", "K"]);
+
+async function memberWorkgroupIds(employeeId) {
+  try {
+    const { items } = await withTimeout(callBitrixAllPages(employeeId, "sonet_group.user.groups", {}), "sonet_group.user.groups");
+    return items.filter((group) => MEMBER_ROLES.has(group.ROLE)).map((group) => String(group.GROUP_ID));
+  } catch (err) {
+    console.error(`[integration-hub] workgroup lookup failed for employee ${employeeId}: ${err.message}`);
+    return [];
+  }
+}
+
+// Integration Hub restricts access to intranet employees and grants extra permissions by
+// workgroup; both are looked up live on every token issue/refresh, so changes in Bitrix take
+// effect within one access-token lifetime.
 async function integrationHubClaims(accountId) {
   const employee = getEmployeeByBitrixUserId(accountId);
   if (!employee) throw new Error(`Unknown Bitrix24 account ${accountId}`);
 
-  // Runs inside the /token request: a hanging Bitrix must not hang the login. Only this lookup
-  // is time-limited; the shared callBitrix used by the MCP tools keeps its behaviour.
-  const user = await Promise.race([
-    callBitrix(employee.id, "user.current"),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Bitrix24 user.current timed out")), BITRIX_LOOKUP_TIMEOUT_MS).unref()
-    ),
-  ]);
+  // Sequential on purpose: both calls may refresh the employee's Bitrix token (shared with the MCP
+  // tools), and Bitrix rotates refresh tokens - two parallel refreshes would make one of them fail.
+  // callBitrix re-reads the employee, so the second call reuses the token the first one refreshed.
+  const user = await withTimeout(callBitrix(employee.id, "user.current"), "user.current");
+  const workgroups = await memberWorkgroupIds(employee.id);
   return {
     name: `${user.NAME || ""} ${user.LAST_NAME || ""}`.trim() || undefined,
+    email: user.EMAIL || undefined,
     bitrix_user_type: user.USER_TYPE ?? null,
     bitrix_departments: Array.isArray(user.UF_DEPARTMENT) ? user.UF_DEPARTMENT : [],
+    bitrix_workgroups: workgroups,
   };
 }
 

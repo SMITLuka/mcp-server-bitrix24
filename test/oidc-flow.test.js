@@ -36,9 +36,26 @@ Object.assign(process.env, {
 // Stub Bitrix24: code exchange (axios.get to oauth.bitrix.info) and REST user.current (axios.post).
 const { default: axios } = await import("axios");
 axios.get = async () => ({ data: { access_token: "bx-access", refresh_token: "bx-refresh", expires_in: 3600 } });
+let workgroupLookupFails = false;
 axios.post = async (url) => {
-  assert.match(url, /\/rest\/user\.current\.json$/);
-  return { data: { result: { ID: "7", NAME: "Luka", LAST_NAME: "Lozic", USER_TYPE: "employee", UF_DEPARTMENT: [1] } } };
+  if (url.endsWith("/rest/user.current.json")) {
+    return { data: { result: { ID: "7", NAME: "Luka", LAST_NAME: "Lozic", EMAIL: "luka@example.test", USER_TYPE: "employee", UF_DEPARTMENT: [1] } } };
+  }
+  if (url.endsWith("/rest/sonet_group.user.groups.json")) {
+    if (workgroupLookupFails) throw new Error("insufficient_scope");
+    return {
+      data: {
+        result: [
+          { GROUP_ID: "45", GROUP_NAME: "CDP razvoj", ROLE: "K" },
+          { GROUP_ID: 42, GROUP_NAME: "Pantheon programiranje", ROLE: "A" },
+          { GROUP_ID: "99", GROUP_NAME: "Only requested to join", ROLE: "Z" },
+          { GROUP_ID: "98", GROUP_NAME: "Banned", ROLE: "T" },
+        ],
+        total: 4,
+      },
+    };
+  }
+  throw new Error(`unexpected Bitrix call ${url}`);
 };
 
 const { default: express } = await import("express");
@@ -148,6 +165,8 @@ test("Integration Hub login yields an at+jwt access token for its API with the B
   assert.equal(payload.name, "Luka Lozic");
   assert.equal(payload.bitrix_user_type, "employee");
   assert.deepEqual(payload.bitrix_departments, [1]);
+  assert.equal(payload.email, "luka@example.test");
+  assert.deepEqual(payload.bitrix_workgroups, ["45", "42"], "memberships only: no pending request (Z), no banned user (T)");
   assert.ok(tokens.refresh_token, "refresh token issued");
 
   const refreshed = await exchange(go, { grant_type: "refresh_token", refresh_token: tokens.refresh_token, client_id: "integration-hub" });
@@ -265,4 +284,25 @@ test("Claude requesting all advertised scopes still gets only a bitrix24 token f
 
   assert.equal(tokens.scope, "bitrix24");
   assert.equal(tokens.access_token.split(".").length, 1);
+});
+
+test("a failing workgroup lookup does not block the Integration Hub login (no extra permissions)", async () => {
+  workgroupLookupFails = true;
+  try {
+    const go = browser();
+    const { verifier, challenge } = pkce();
+    const redirectUri = "http://localhost:4200/";
+    const code = await loginAndGetCode(go, {
+      client_id: "integration-hub", response_type: "code", redirect_uri: redirectUri, scope: "openid integration-hub",
+      code_challenge: challenge, code_challenge_method: "S256", state: "w",
+    }, redirectUri);
+    const tokens = await exchange(go, {
+      grant_type: "authorization_code", code, redirect_uri: redirectUri, client_id: "integration-hub", code_verifier: verifier,
+    });
+    const { payload } = decodeJwt(tokens.access_token);
+    assert.deepEqual(payload.bitrix_workgroups, []);
+    assert.equal(payload.bitrix_user_type, "employee");
+  } finally {
+    workgroupLookupFails = false;
+  }
 });
