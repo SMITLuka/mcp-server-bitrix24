@@ -71,7 +71,7 @@ export function registerTaskTools(server, employeeId) {
         {
           filter,
           order: { ID: "desc" },
-          select: ["ID", "TITLE", "STATUS", "DEADLINE", "RESPONSIBLE_ID", "CREATED_BY", "GROUP_ID"],
+          select: ["ID", "TITLE", "STATUS", "DEADLINE", "RESPONSIBLE_ID", "CREATED_BY", "GROUP_ID", "UF_MAIL_MESSAGE"],
         },
         { resultKey: "tasks", maxItems: limit }
       );
@@ -84,6 +84,9 @@ export function registerTaskTools(server, employeeId) {
         responsibleId: t.responsibleId ?? t.RESPONSIBLE_ID,
         createdBy: t.createdBy ?? t.CREATED_BY,
         groupId: t.groupId ?? t.GROUP_ID,
+        // Tasks Bitrix creates from an incoming e-mail (the "ticket" flow) carry a
+        // link to the original message in UF_MAIL_MESSAGE.
+        fromEmail: Boolean(t.ufMailMessage ?? t.UF_MAIL_MESSAGE),
       }));
 
       const text =
@@ -216,6 +219,7 @@ export function registerTaskTools(server, employeeId) {
           "CREATED_BY",
           "GROUP_ID",
           "UF_TASK_WEBDAV_FILES",
+          "UF_MAIL_MESSAGE",
         ],
       });
       const task = taskResult?.task;
@@ -277,6 +281,7 @@ export function registerTaskTools(server, employeeId) {
                 responsibleId: task.responsibleId ?? task.RESPONSIBLE_ID,
                 createdBy: task.createdBy ?? task.CREATED_BY,
                 groupId: task.groupId ?? task.GROUP_ID,
+                mailMessageId: task.ufMailMessage ?? task.UF_MAIL_MESSAGE ?? null,
                 // Bitrix's own view of what the current user may do to this
                 // task - useful for diagnosing "Access denied" on attach/edit.
                 allowedActions: task.action,
