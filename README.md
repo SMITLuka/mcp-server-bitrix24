@@ -42,6 +42,9 @@ Vezano uz Bitrix task **#12765** — "Set up company-wide Bitrix24 MCP Server fo
 | `bitrix_get_lead` | Dohvat CRM leada po ID-u |
 | `bitrix_create_workgroup` | Kreiranje Bitrix24 workgroup/projekta (`sonet_group.create`) |
 | `bitrix_list_my_workgroups` | Workgroups/projekti trenutnog korisnika (skraćen izlaz, sve stranice) |
+| `bitrix_find_employee` | Pretraga zaposlenika po imenu/emailu: Bitrix ID, pozicija, odjeli (`user.search`) |
+| `bitrix_add_task_comment` | Dodavanje komentara na task pod imenom trenutnog korisnika (`task.commentitem.add`) |
+| `bitrix_send_chat_message` | Privatna Bitrix chat poruka kolegi pod imenom trenutnog korisnika (`im.message.add`); Claude mora prije slanja potvrditi primatelja i tekst |
 
 ## Onboarding novog zaposlenika
 
@@ -67,7 +70,10 @@ docker exec -it <container_id> node scripts/add-employee.js "Ime Prezime"
 - **`tasks.task.files.attach`** povremeno vraća prolazni "Access denied" odmah nakon `disk.folder.uploadfile` (ACL/indeks za novi Disk objekt još nije propagiran) — riješeno retry-jem s kratkim backoffom.
 - **Dijeljena Claude licenca unutar odjela** (jedna prijava za više ljudi) kvari cijeli attribution model — OAuth token/identitet se veže uz Claude prijavu, ne uz fizičku osobu, pa akcije svih dijele identitet prve osobe koja se prijavila. Nema tehničkog rješenja unutar MCP servera; treba zasebna Claude sjedala po osobi.
 - **"Access denied" na `tasks.task.files.attach` nije uvijek prolazna greška** — može biti i trajno, namjerno ograničenje prava na razini konkretne grupe/projekta (`GROUP_ID`) kojem task pripada. Potvrđeno uživo: korisnik je bio **responsible** na tasku, a Bitrix je ipak vratio `edit: false` u `action` objektu (dopuštao je `complete`/`pause`/`delegate`, ali ne `edit`/`attach`) — grupa je vjerojatno podešena da samo kreator/moderator smije uređivati taskove. `bitrix_get_task` sad vraća `groupId`, `createdBy` i `allowedActions` (Bitrixov `action` objekt) baš za ovu dijagnozu — kad se opet pojavi "Access denied" na attach/edit, prvo provjeriti `allowedActions.edit` za taj task prije nego se pretpostavi bug u kodu.
+- **Novi alati nisu odmah vidljivi** — Claude drži listu alata po konekciji; nakon dodavanja alata treba redeploy pa disconnect/Connect konektora (ili nova sesija). Promjena samo unutarnje logike postojećeg alata ne traži reconnect.
+- **Alati koji pišu** (`bitrix_add_task_comment`, `bitrix_send_chat_message`, `bitrix_attach_file_to_task`) djeluju pod identitetom prijavljenog korisnika i podliježu njegovim Bitrix pravima (npr. `edit: false` na tasku u ograničenoj grupi blokira prilaganje). Chat poruke su stvarne poruke stvarnim ljudima — preporuka je u Claudeu birati "Allow once", ne "Always allow", za `bitrix_send_chat_message`.
+- **Paralelni razvoj:** drugi developer dodaje "Integration Hub" (OIDC klijent s JWT tokenima i workgroup claimovima) u `oidcProvider.js`/`config.js`; prije pusha uvijek `git pull --rebase`.
 
 ## Mogući budući dodaci
 
-Task/CRM: update/complete/delete task, create/update lead, deals, contacts, companies. Kalendar: eventi. Zaposlenici: pretraga kolega. Disk: pretraga datoteka. Messenger: slanje poruka (zahtijeva pažljivije razmatranje zbog "akcija u ime korisnika").
+Task/CRM: update/complete/delete task, create/update lead, deals, contacts, companies. Kalendar: eventi. Disk: pretraga datoteka. Messenger: grupni chatovi i čitanje poruka.
