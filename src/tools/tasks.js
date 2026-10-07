@@ -237,6 +237,21 @@ export function registerTaskTools(server, employeeId) {
   );
 
   server.tool(
+    "bitrix_add_task_comment",
+    "Add a comment to an existing Bitrix24 task, posted as the current user",
+    {
+      taskId: z.string(),
+      text: z.string().describe("Comment text (BBCode like [b]bold[/b] is supported by Bitrix)"),
+    },
+    async ({ taskId, text }) => {
+      // Classic task.commentitem.* API (same family as the getlist used by
+      // bitrix_get_task), called with positional params [taskId, fields].
+      const result = await callBitrix(employeeId, "task.commentitem.add", [taskId, { POST_MESSAGE: text }]);
+      return { content: [{ type: "text", text: JSON.stringify({ commentId: result }, null, 2) }] };
+    }
+  );
+
+  server.tool(
     "bitrix_read_attachment",
     "Download and read the content of a Bitrix24 Disk file (e.g. one attached to a task). Text files are returned as plain text, images as an image, other binary files as base64.",
     { fileId: z.string().describe("Disk file ID, e.g. from bitrix_get_task's files list") },
