@@ -39,6 +39,62 @@ export function registerTaskTools(server, employeeId) {
   );
 
   server.tool(
+    "bitrix_search_tasks",
+    "Search Bitrix24 tasks (tickets) across everyone's work, not just the current user's: by words in the title, " +
+      "assignee, creator, workgroup/project and status. Returns only tasks the current user is allowed to see. " +
+      "Use bitrix_get_task for the full description/comments of a hit; use bitrix_find_employee to get an assignee ID " +
+      "and bitrix_list_my_workgroups for a workgroup ID.",
+    {
+      query: z.string().optional().describe("Words contained in the task title"),
+      responsibleId: z.string().optional().describe("Bitrix user ID of the assignee"),
+      createdBy: z.string().optional().describe("Bitrix user ID of the creator"),
+      groupId: z.string().optional().describe("Workgroup/project ID"),
+      status: z.enum(["all", "pending", "completed"]).optional().describe("Defaults to 'all'"),
+      limit: z.number().int().min(1).max(200).optional().describe("Max results, default 50"),
+    },
+    async ({ query, responsibleId, createdBy, groupId, status = "all", limit = 50 }) => {
+      const filter = {};
+      if (query) filter["%TITLE"] = query;
+      if (responsibleId) filter.RESPONSIBLE_ID = responsibleId;
+      if (createdBy) filter.CREATED_BY = createdBy;
+      if (groupId) filter.GROUP_ID = groupId;
+      if (status === "pending") filter.REAL_STATUS = [2, 3];
+      if (status === "completed") filter.REAL_STATUS = 5;
+
+      if (Object.keys(filter).length === 0) {
+        throw new Error("Give at least one search criterion (query, responsibleId, createdBy, groupId or status).");
+      }
+
+      const { items, total } = await callBitrixAllPages(
+        employeeId,
+        "tasks.task.list",
+        {
+          filter,
+          order: { ID: "desc" },
+          select: ["ID", "TITLE", "STATUS", "DEADLINE", "RESPONSIBLE_ID", "CREATED_BY", "GROUP_ID"],
+        },
+        { resultKey: "tasks", maxItems: limit }
+      );
+
+      const results = items.map((t) => ({
+        id: t.id ?? t.ID,
+        title: t.title ?? t.TITLE,
+        status: t.status ?? t.STATUS,
+        deadline: t.deadline ?? t.DEADLINE,
+        responsibleId: t.responsibleId ?? t.RESPONSIBLE_ID,
+        createdBy: t.createdBy ?? t.CREATED_BY,
+        groupId: t.groupId ?? t.GROUP_ID,
+      }));
+
+      const text =
+        total > results.length
+          ? `Showing ${results.length} of ${total} matching tasks (raise limit or narrow the search).\n\n${JSON.stringify(results, null, 2)}`
+          : JSON.stringify(results, null, 2);
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
+  server.tool(
     "bitrix_create_task",
     "Create a new Bitrix24 task assigned to the current user",
     {
