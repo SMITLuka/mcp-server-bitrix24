@@ -121,6 +121,53 @@ export function registerTaskTools(server, employeeId) {
   );
 
   server.tool(
+    "bitrix_update_task",
+    "Update an existing Bitrix24 task: title, description, deadline, assignee, and/or add observers (auditors). " +
+      "Only the fields you pass are changed. Reassigning a task or changing its description affects other people, " +
+      "so confirm with the user first. Requires edit rights on the task (see allowedActions.edit in bitrix_get_task).",
+    {
+      taskId: z.string(),
+      title: z.string().optional(),
+      description: z.string().optional().describe("Replaces the whole description (BBCode supported)"),
+      deadline: z.string().optional().describe("ISO date, e.g. 2026-10-13"),
+      responsibleId: z.string().optional().describe("New assignee's Bitrix user ID (from bitrix_find_employee)"),
+      addAuditorIds: z
+        .array(z.string())
+        .optional()
+        .describe("Bitrix user IDs to ADD as observers; existing observers are kept"),
+    },
+    async ({ taskId, title, description, deadline, responsibleId, addAuditorIds }) => {
+      const fields = {};
+      if (title !== undefined) fields.TITLE = title;
+      if (description !== undefined) fields.DESCRIPTION = description;
+      if (deadline !== undefined) fields.DEADLINE = deadline;
+      if (responsibleId !== undefined) fields.RESPONSIBLE_ID = responsibleId;
+
+      if (addAuditorIds?.length) {
+        // AUDITORS replaces the whole list, so merge with the current observers.
+        const current = await callBitrix(employeeId, "tasks.task.get", { taskId, select: ["ID", "AUDITORS"] });
+        const existing = (current?.task?.auditors ?? current?.task?.AUDITORS ?? []).map(String);
+        fields.AUDITORS = [...new Set([...existing, ...addAuditorIds.map(String)])];
+      }
+
+      if (Object.keys(fields).length === 0) {
+        throw new Error("Nothing to update: pass at least one of title, description, deadline, responsibleId, addAuditorIds.");
+      }
+
+      const result = await callBitrix(employeeId, "tasks.task.update", { taskId, fields });
+      const t = result?.task ?? {};
+      const summary = {
+        id: t.id ?? taskId,
+        title: t.title,
+        responsibleId: t.responsibleId,
+        auditors: t.auditors,
+        deadline: t.deadline,
+      };
+      return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
+    }
+  );
+
+  server.tool(
     "bitrix_attach_file_to_task",
     "Upload a file and attach it to an existing Bitrix24 task",
     {
