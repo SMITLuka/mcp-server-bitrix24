@@ -11,7 +11,8 @@ export function registerMessengerTools(server, employeeId) {
       const chats = await callBitrix(employeeId, "im.search.chat.list", { FIND: query });
       const trimmed = (chats || []).map((c) => ({
         chatId: c.id,
-        title: c.title,
+        // im.search.chat.list names the chat in `name`, not `title`.
+        title: c.name ?? c.title,
         type: c.type,
         members: c.user_counter ?? c.userCounter,
       }));
