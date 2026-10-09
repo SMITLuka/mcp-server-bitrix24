@@ -46,4 +46,49 @@ export function registerMessengerTools(server, employeeId) {
       return { content: [{ type: "text", text: JSON.stringify({ sentTo: dialogId, messageId }, null, 2) }] };
     }
   );
+
+  server.tool(
+    "bitrix_read_chat_messages",
+    "Read the most recent messages of a Bitrix24 chat the current user belongs to, newest first, with author names. " +
+      "Use bitrix_find_chat for a group chat's ID or bitrix_find_employee for a private chat's user ID.",
+    {
+      chatId: z.string().optional().describe("Group chat ID (from bitrix_find_chat)"),
+      userId: z.string().optional().describe("Bitrix user ID, for the private chat with that person"),
+      limit: z.number().int().min(1).max(50).optional().describe("How many messages, default 20"),
+    },
+    async ({ chatId, userId, limit = 20 }) => {
+      if (Boolean(userId) === Boolean(chatId)) {
+        throw new Error("Pass exactly one of chatId (group chat) or userId (private chat).");
+      }
+      const result = await callBitrix(employeeId, "im.dialog.messages.get", {
+        DIALOG_ID: userId ?? `chat${chatId}`,
+        LIMIT: limit,
+      });
+
+      const names = new Map((result?.users ?? []).map((u) => [String(u.id), u.name]));
+      const messages = (result?.messages ?? [])
+        .map((m) => ({
+          messageId: m.id,
+          authorId: m.author_id,
+          author: names.get(String(m.author_id)) ?? null,
+          date: m.date,
+          text: m.text,
+        }))
+        .sort((a, b) => Number(b.messageId) - Number(a.messageId));
+      return { content: [{ type: "text", text: JSON.stringify(messages, null, 2) }] };
+    }
+  );
+
+  server.tool(
+    "bitrix_like_chat_message",
+    "Add a like to a Bitrix24 chat message as the current user (never removes one). The like is visible to " +
+      "everyone in the chat, so confirm with the user which exact message it is before calling. " +
+      "Get messageId from bitrix_read_chat_messages.",
+    { messageId: z.string() },
+    async ({ messageId }) => {
+      // ACTION "plus" always adds; "auto" would toggle an existing like off.
+      const result = await callBitrix(employeeId, "im.message.like", { MESSAGE_ID: messageId, ACTION: "plus" });
+      return { content: [{ type: "text", text: JSON.stringify({ liked: messageId, result }, null, 2) }] };
+    }
+  );
 }
