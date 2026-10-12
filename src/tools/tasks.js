@@ -252,7 +252,9 @@ export function registerTaskTools(server, employeeId) {
 
   server.tool(
     "bitrix_get_task",
-    "Get full details of a single Bitrix24 task: description, comments, and attached files",
+    "Get full details of a single Bitrix24 task: description, comments, attached files and the task chat. " +
+      "Old tasks keep their discussion in `comments`; newer tasks keep it in the task chat (`chatMessages`, newest " +
+      "first, including Bitrix system messages with authorId 0), so check both.",
     { taskId: z.string() },
     async ({ taskId }) => {
       const taskResult = await callBitrix(employeeId, "tasks.task.get", {
@@ -268,6 +270,7 @@ export function registerTaskTools(server, employeeId) {
           "GROUP_ID",
           "UF_TASK_WEBDAV_FILES",
           "UF_MAIL_MESSAGE",
+          "CHAT_ID",
         ],
       });
       const task = taskResult?.task;
@@ -288,6 +291,31 @@ export function registerTaskTools(server, employeeId) {
         }));
       } catch (err) {
         comments = [`Could not load comments: ${err.message}`];
+      }
+
+      // Newer tasks have a task chat instead of classic comments; the
+      // discussion (and Bitrix's "assignee changed" system lines) lives there.
+      const chatId = task.chatId ?? task.CHAT_ID ?? null;
+      let chatMessages = [];
+      if (chatId && Number(chatId) > 0) {
+        try {
+          const chat = await callBitrix(employeeId, "im.dialog.messages.get", {
+            DIALOG_ID: `chat${chatId}`,
+            LIMIT: 30,
+          });
+          const names = new Map((chat?.users ?? []).map((u) => [String(u.id), u.name]));
+          chatMessages = (chat?.messages ?? [])
+            .map((m) => ({
+              messageId: m.id,
+              authorId: m.author_id,
+              author: names.get(String(m.author_id)) ?? null,
+              date: m.date,
+              text: m.text,
+            }))
+            .sort((a, b) => Number(b.messageId) - Number(a.messageId));
+        } catch (err) {
+          chatMessages = [`Could not load task chat: ${err.message}`];
+        }
       }
 
       // UF_TASK_WEBDAV_FILES stores the disk.attachedObject ID returned by
@@ -334,6 +362,8 @@ export function registerTaskTools(server, employeeId) {
                 // task - useful for diagnosing "Access denied" on attach/edit.
                 allowedActions: task.action,
                 comments,
+                chatId,
+                chatMessages,
                 files,
               },
               null,
