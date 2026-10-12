@@ -2,6 +2,7 @@ import { z } from "zod";
 import axios from "axios";
 import { callBitrix, callBitrixAllPages } from "../bitrixClient.js";
 import { getEmployeeById } from "../db.js";
+import { extractDocumentText } from "../extractText.js";
 
 export function registerTaskTools(server, employeeId) {
   server.tool(
@@ -361,7 +362,7 @@ export function registerTaskTools(server, employeeId) {
 
   server.tool(
     "bitrix_read_attachment",
-    "Download and read the content of a Bitrix24 Disk file (e.g. one attached to a task). Text files are returned as plain text, images as an image, other binary files as base64.",
+    "Download and read the content of a Bitrix24 Disk file (e.g. one attached to a task or a chat message). Text files, Excel (.xlsx), Word (.docx) and PDF are returned as extracted text, images as an image, anything else as base64.",
     { fileId: z.string().describe("Disk file ID, e.g. from bitrix_get_task's files list") },
     async ({ fileId }) => {
       const file = await callBitrix(employeeId, "disk.file.get", { id: fileId });
@@ -392,7 +393,30 @@ export function registerTaskTools(server, employeeId) {
         return { content: [{ type: "text", text: `File: ${file.NAME} (${contentType})\n\n${text}` }] };
       }
 
-      // Binary, non-image (PDF, docx, ...): base64 so Claude can still work with it.
+      // Excel / Word / PDF: extract readable text instead of dumping base64.
+      let extractionNote = "";
+      try {
+        const extracted = await extractDocumentText(buffer, file.NAME, contentType);
+        if (extracted) {
+          const MAX_DOC_CHARS = 30000;
+          let text = extracted.text.trim();
+          if (text.length > MAX_DOC_CHARS) {
+            text = `${text.slice(0, MAX_DOC_CHARS)}
+
+[truncated - extracted text is ${extracted.text.length} characters]`;
+          }
+          return {
+            content: [{ type: "text", text: `File: ${file.NAME} (${extracted.kind}, text extracted)
+
+${text || "[no text found]"}` }],
+          };
+        }
+      } catch (err) {
+        // Corrupt or password-protected: fall through to base64 and say why.
+        extractionNote = ` [text extraction failed: ${err.message}]`;
+      }
+
+      // Anything else (or a failed extraction): base64 so Claude can still work with it.
       const MAX_BASE64_CHARS = 200000;
       let base64 = buffer.toString("base64");
       let note = "";
