@@ -49,7 +49,8 @@ export function registerMessengerTools(server, employeeId) {
 
   server.tool(
     "bitrix_read_chat_messages",
-    "Read the most recent messages of a Bitrix24 chat the current user belongs to, newest first, with author names. " +
+    "Read the most recent messages of a Bitrix24 chat the current user belongs to, newest first, with author names " +
+      "and any attached files (fileId can be read with bitrix_read_attachment). " +
       "Use bitrix_find_chat for a group chat's ID or bitrix_find_employee for a private chat's user ID.",
     {
       chatId: z.string().optional().describe("Group chat ID (from bitrix_find_chat)"),
@@ -66,6 +67,11 @@ export function registerMessengerTools(server, employeeId) {
       });
 
       const names = new Map((result?.users ?? []).map((u) => [String(u.id), u.name]));
+      // Messages carry file IDs in params.FILE_ID; the file details come in a
+      // separate top-level `files` list. Without this a message that is just an
+      // attachment looks empty. The IDs are Disk file IDs, so they work with
+      // bitrix_read_attachment.
+      const filesById = new Map((result?.files ?? []).map((f) => [String(f.id), f]));
       const messages = (result?.messages ?? [])
         .map((m) => ({
           messageId: m.id,
@@ -73,6 +79,10 @@ export function registerMessengerTools(server, employeeId) {
           author: names.get(String(m.author_id)) ?? null,
           date: m.date,
           text: m.text,
+          files: (m.params?.FILE_ID ?? []).map((id) => {
+            const f = filesById.get(String(id));
+            return { fileId: String(id), name: f?.name, type: f?.type, size: f?.size };
+          }),
         }))
         .sort((a, b) => Number(b.messageId) - Number(a.messageId));
       return { content: [{ type: "text", text: JSON.stringify(messages, null, 2) }] };
