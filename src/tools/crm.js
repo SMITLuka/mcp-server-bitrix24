@@ -2,7 +2,7 @@ import { z } from "zod";
 import { callBitrix } from "../bitrixClient.js";
 import { describeCrmFields } from "../crmFields.js";
 import { config } from "../config.js";
-import { buildBatchCommands, collectCandidates, parseQuery, rankTickets } from "../ticketSearch.js";
+import { buildBatchCommands, collectCandidates, isComplete, parseQuery, rankTickets } from "../ticketSearch.js";
 
 export function registerCrmTools(server, employeeId) {
   server.tool(
@@ -76,14 +76,15 @@ export function registerCrmTools(server, employeeId) {
       const notes = [];
       if (dropped > 0) notes.push(`Only the first ${words.length} keywords were used (${dropped} ignored).`);
       // Each sub-query returns Bitrix's first page only (the newest 50 deals),
-      // so older tickets can be missed for the word/field pairs listed here.
-      if (truncated.length) {
-        notes.push("Some keywords matched more than 50 tickets in a field; only the newest were checked (see truncated). Add keywords to reach older tickets.");
+      // so older tickets can be missed unless one word was fetched in full.
+      const complete = isComplete(words, truncated);
+      if (!complete) {
+        notes.push("Every keyword matched more than 50 tickets in some field; only the newest were checked (see truncated). Add a rarer keyword to reach older tickets.");
       }
 
       const payload = { candidatesMatched: ranked.length, shown: results.length, results };
       if (notes.length) payload.notes = notes;
-      if (truncated.length) payload.truncated = truncated;
+      if (!complete) payload.truncated = truncated;
       if (errors.length) payload.errors = errors;
       return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
     }

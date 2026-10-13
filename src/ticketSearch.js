@@ -32,18 +32,23 @@ export function normalize(text) {
   return Array.from(String(text ?? ""), normalizeChar).join("");
 }
 
-// Strips BBCode/HTML tags and collapses whitespace, so snippets read as text.
+// The HTML entities Bitrix stores in the comment field (e.g. &quot;).
+const ENTITIES = { quot: '"', lt: "<", gt: ">", nbsp: " ", amp: "&" };
+
+// Strips BBCode/HTML tags, decodes common entities and collapses whitespace,
+// so snippets read as text. One pass, so "&amp;quot;" becomes "&quot;".
 export function cleanText(text) {
   return String(text ?? "")
     .replace(/\[\/?[a-z*][^\]]*\]/gi, " ")
     .replace(/<[^>]+>/g, " ")
+    .replace(/&(quot|lt|gt|nbsp|amp|#0*39);/g, (_, name) => ENTITIES[name] ?? "'")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 // Splits the query into distinct normalized words of at least 2 characters,
 // keeping the first MAX_WORDS so one batch call stays under Bitrix's
-// 50-command limit (6 words x 2 spellings x 4 fields = 48).
+// 50-command limit (6 words x up to 2 spellings x 4 fields = 48).
 export function parseQuery(query) {
   const words = [];
   for (const raw of String(query ?? "").split(/[^\p{L}\p{N}]+/u)) {
@@ -65,17 +70,17 @@ export function toQueryString(value, prefix = "") {
   return `${encodeURIComponent(prefix)}=${encodeURIComponent(value)}`;
 }
 
-// One crm.deal.list per word, spelling and field. The word is sent both as
-// typed and without diacritics, because e-mails are often written without
-// them. The reverse (typed without, stored with) relies on Bitrix's own LIKE
-// ignoring diacritics, which depends on its database collation.
+// One crm.deal.list per word, spelling and field. Bitrix's LIKE already
+// ignores case and č/ć/š/ž (checked live: "narudzbu" and "narudžbu" match the
+// same tickets) but not đ, so a word with đ is also sent with d, because
+// e-mails are often written without diacritics.
 // `queries` maps each command key back to its word and field, for reporting.
 export function buildBatchCommands(words) {
   const select = ["ID", "TITLE", "STAGE_ID", "ASSIGNED_BY_ID", "DATE_CREATE", "CLOSED", ...Object.keys(TICKET_FIELDS)];
   const cmd = {};
   const queries = {};
   words.forEach((word, w) => {
-    const spellings = [...new Set([word.raw, word.normalized])];
+    const spellings = word.raw.includes("đ") ? [word.raw, word.normalized] : [word.raw];
     spellings.forEach((spelling, s) => {
       for (const field of Object.keys(TICKET_FIELDS)) {
         const params = {
@@ -173,4 +178,13 @@ export function collectCandidates(batchResult, queries) {
     errors.get(id).words.push(word);
   }
   return { deals: [...byId.values()], truncated, errors: [...errors.values()] };
+}
+
+// Every result must contain every word, so if one word was fetched in full
+// (no truncated sub-query for any of its spellings) no matching ticket can
+// have been missed, however many hits the other words had. Rejected
+// sub-queries are reported separately, as `errors`.
+export function isComplete(words, truncated) {
+  const partial = new Set(truncated.map((t) => t.word));
+  return words.some((word) => !partial.has(word.raw) && !partial.has(word.normalized));
 }

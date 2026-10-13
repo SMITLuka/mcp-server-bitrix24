@@ -7,6 +7,7 @@ import {
   buildBatchCommands,
   cleanText,
   collectCandidates,
+  isComplete,
   normalize,
   parseQuery,
   rankTickets,
@@ -40,25 +41,33 @@ test("cleanText removes BBCode and HTML and collapses whitespace", () => {
   assert.equal(cleanText("[b]Pozdrav[/b],\r\n\r\n<p>krivi  rabat</p> [URL=/x]link[/URL]"), "Pozdrav , krivi rabat link");
 });
 
+test("cleanText decodes the HTML entities Bitrix stores in comments", () => {
+  assert.equal(cleanText("Upit - &quot;štampanje&quot; &amp;&nbsp;A&lt;B&gt;"), 'Upit - "štampanje" & A<B>');
+  assert.equal(cleanText("it&#039;s it&#39;s"), "it's it's");
+  // Decoded once only: an escaped entity stays an entity.
+  assert.equal(cleanText("&amp;quot;"), "&quot;");
+});
+
 test("toQueryString encodes nested params the way PHP reads them", () => {
   const qs = toQueryString({ filter: { "%TITLE": "š x", CATEGORY_ID: 0 }, select: ["ID", "TITLE"] });
   assert.equal(qs, "filter%5B%25TITLE%5D=%C5%A1%20x&filter%5BCATEGORY_ID%5D=0&select%5B0%5D=ID&select%5B1%5D=TITLE");
 });
 
-test("buildBatchCommands sends both spellings for each field and stays under 50 commands", () => {
-  const { cmd, queries } = buildBatchCommands(parseQuery("rješenje 014").words);
-  // rješenje: 2 spellings x 4 fields, 014: 1 spelling x 4 fields
+test("buildBatchCommands sends a word with đ in both spellings for each field and stays under 50 commands", () => {
+  const { cmd, queries } = buildBatchCommands(parseQuery("određenom 014").words);
+  // određenom: 2 spellings x 4 fields, 014: 1 spelling x 4 fields
   assert.equal(Object.keys(cmd).length, 12);
   assert.ok(Object.values(cmd).every((c) => c.startsWith("crm.deal.list?")));
-  assert.deepEqual(queries.w0s1_SOURCE_DESCRIPTION, { word: "rjesenje", field: "SOURCE_DESCRIPTION" });
+  assert.deepEqual(queries.w0s1_SOURCE_DESCRIPTION, { word: "odredenom", field: "SOURCE_DESCRIPTION" });
 
-  const max = buildBatchCommands(parseQuery("čč šš žž ćć đđ čš").words).cmd;
-  assert.ok(Object.keys(max).length <= 50);
+  const max = buildBatchCommands(parseQuery("đa đb đc đd đe đf").words).cmd;
+  assert.equal(Object.keys(max).length, 48);
 });
 
-test("buildBatchCommands sends a word without diacritics only once per field", () => {
-  const { cmd } = buildBatchCommands(parseQuery("rjesenje").words);
+test("buildBatchCommands sends other words once per field, as typed, since Bitrix ignores č/ć/š/ž itself", () => {
+  const { cmd, queries } = buildBatchCommands(parseQuery("Rješenje").words);
   assert.equal(Object.keys(cmd).length, 4);
+  assert.deepEqual(queries.w0s0_TITLE, { word: "rješenje", field: "TITLE" });
 });
 
 test("rankTickets requires every word, in any field", () => {
@@ -140,6 +149,17 @@ test("collectCandidates merges duplicates, reports truncation and dedupes reject
   assert.deepEqual(deals.map((d) => d.ID), ["1", "2"]);
   assert.deepEqual(truncated, [{ word: "rabat", field: "TITLE", matches: 120, fetched: 2 }]);
   assert.deepEqual(errors, [{ field: "UF_CRM_1601893231", error: "Unknown field", words: ["rabat", "014"] }]);
+});
+
+test("isComplete is true when at least one word had no truncated sub-query in any spelling", () => {
+  const words = parseQuery("metalac rabat").words;
+  assert.equal(isComplete(words, [{ word: "rabat", field: "TITLE" }]), true);
+  assert.equal(isComplete(words, [{ word: "rabat", field: "TITLE" }, { word: "metalac", field: "COMMENTS" }]), false);
+  // A word with đ is sent in two spellings; either one truncated makes it partial.
+  const withDj = parseQuery("đurđevac").words;
+  assert.equal(isComplete(withDj, [{ word: "đurđevac", field: "TITLE" }]), false);
+  assert.equal(isComplete(withDj, [{ word: "durdevac", field: "TITLE" }]), false);
+  assert.equal(isComplete(withDj, []), true);
 });
 
 test("collectCandidates copes with PHP's empty-array shape for empty maps", () => {
