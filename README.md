@@ -58,7 +58,7 @@ Vezano uz Bitrix task **#12765** — "Set up company-wide Bitrix24 MCP Server fo
 
 Bitrix task **#13485**. Omogućuje pretragu tiketa po sadržaju, ne samo po naslovu, npr. "nađi tikete gdje se kupac žali na krivi rabat i pokaži kako su riješeni".
 
-**Gdje su tiketi.** Tiketi nisu taskovi nego **CRM dealovi** u pipelineu `CATEGORY_ID = 0` (tip `SALE`), nastali iz e-maila (`ORIGINATOR_ID = email-tracker`). Utvrđeno na dealovima 100287 i 100526 alatom `bitrix_get_deal`. Polja:
+**Gdje su tiketi.** Tiketi nisu taskovi nego **CRM dealovi** u pipelineu **"Upiti"** (`CATEGORY_ID = 0`, tip `SALE`), nastali iz e-maila (`ORIGINATOR_ID = email-tracker`). Utvrđeno na dealovima 100287 i 100526 alatom `bitrix_get_deal`. Adriano Matak potvrdio 13.10.2026: pretraga obuhvaća **sve** upite (ne samo Klasifikaciju "Podrška/Podpora", nego i npr. "Analiza"); ostali pipelinei ("Azelija", "Lidovi" s prodajnim leadovima) namjerno nisu uključeni. Polja:
 
 | Polje | Šifra | Napomena |
 |---|---|---|
@@ -66,7 +66,7 @@ Bitrix task **#13485**. Omogućuje pretragu tiketa po sadržaju, ne samo po nasl
 | Source information | `SOURCE_DESCRIPTION` | tekst e-maila kupca |
 | Komentar | `COMMENTS` | često kopija naslova; sadrži HTML entitete (`&quot;`) |
 | Rješenje | `UF_CRM_1601893231` | odgovor podrške, string |
-| Klasifikacija | `UF_CRM_5F55F24F6F61E` | npr. "Podrška/Podpora" (trenutno se ne filtrira) |
+| Klasifikacija | `UF_CRM_5F55F24F6F61E` | npr. "Podrška/Podpora", "Analiza"; namjerno se ne filtrira |
 | Faza | `STAGE_ID` | `WON` = uspješno zatvoren, `NEW` = novi |
 
 Tekstovi su na hrvatskom i slovenskom. Odgovor kupca na zatvoreni tiket otvara **novi** deal s naslovom "RE: ... Upit - <ID originala> - ..." (npr. 100526 → 100287).
@@ -83,7 +83,6 @@ Tekstovi su na hrvatskom i slovenskom. Odgovor kupca na zatvoreni tiket otvara *
 
 - Svaki pod-upit vraća samo prvu stranicu (50 najnovijih tiketa). Ako je **svaka** riječ imala više od 50 pogodaka u nekom polju, starijih tiketa može nedostajati; alat to javi (`notes`, `truncated`) i treba dodati rjeđu riječ. Ako je bar jedna riječ dohvaćena u cijelosti, rezultat je potpun (svaki pogodak mora sadržavati tu riječ).
 - "dj" i "đ" se ne smatraju istim slovom: "odredjenom" ne nalazi "određenom" i obrnuto.
-- Pretražuje se cijeli pipeline 0. Je li u njemu još nešto osim tiketa podrške (i treba li filtrirati po Klasifikaciji) još nije potvrđeno.
 - Odgovorna osoba vraća se kao ID; ime se dobiva preko `bitrix_find_employee`.
 
 **Nalazi testa uživo (13.10.2026, 13 upita):**
@@ -125,4 +124,4 @@ docker exec -it <container_id> node scripts/add-employee.js "Ime Prezime"
 
 ## Mogući budući dodaci
 
-Task/CRM: complete/delete task, create/update lead, izmjena dealova, contacts, companies. Pretraga tiketa: filter po Klasifikaciji, imena odgovornih osoba u rezultatu, "dj" kao "đ", dohvat starijih stranica kad su sve riječi česte. Kalendar: eventi. Disk: pretraga datoteka. Messenger: grupni chatovi i čitanje poruka.
+Task/CRM: complete/delete task, create/update lead, izmjena dealova, contacts, companies. Pretraga tiketa: imena odgovornih osoba u rezultatu, "dj" kao "đ", dohvat starijih stranica kad su sve riječi česte. Kalendar: eventi. Disk: pretraga datoteka.
