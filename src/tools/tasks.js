@@ -100,14 +100,15 @@ export function registerTaskTools(server, employeeId) {
 
   server.tool(
     "bitrix_create_task",
-    "Create a new Bitrix24 task assigned to the current user",
+    "Create a new Bitrix24 task assigned to the current user (or a subtask when parentId is given)",
     {
       title: z.string(),
       description: z.string().optional(),
       responsibleId: z.string().optional().describe("Defaults to the current user"),
       deadline: z.string().optional().describe("ISO date, e.g. 2026-09-30"),
+      parentId: z.string().optional().describe("ID of the parent task, to create this as a subtask"),
     },
-    async ({ title, description, responsibleId, deadline }) => {
+    async ({ title, description, responsibleId, deadline, parentId }) => {
       const employee = getEmployeeById(employeeId);
       const result = await callBitrix(employeeId, "tasks.task.add", {
         fields: {
@@ -115,6 +116,7 @@ export function registerTaskTools(server, employeeId) {
           DESCRIPTION: description,
           RESPONSIBLE_ID: responsibleId || employee.bitrix_user_id,
           DEADLINE: deadline,
+          PARENT_ID: parentId,
         },
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
