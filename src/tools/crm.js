@@ -47,6 +47,70 @@ export function registerCrmTools(server, employeeId) {
   );
 
   server.tool(
+    "bitrix_find_quotes",
+    "Search Bitrix24 CRM quotes (called \"Estimates\" in some Bitrix interfaces) by words in the title or quote " +
+      "number, newest first. Returns ID, number, title, stage, amount, assignee ID, linked deal/company/contact " +
+      "IDs and a link; only quotes the user may see in Bitrix. Returns at most the first 50 matches. " +
+      "Use bitrix_get_quote for one quote's full details.",
+    {
+      query: z.string().optional().describe("Words in the quote title or number; omit to list the newest quotes"),
+      limit: z.number().int().min(1).max(50).optional().describe("Max results, default 20"),
+    },
+    async ({ query, limit = 20 }) => {
+      const filter = query ? { LOGIC: "OR", "%TITLE": query, "%QUOTE_NUMBER": query } : {};
+      const result = await callBitrix(employeeId, "crm.quote.list", {
+        filter,
+        select: [
+          "ID",
+          "QUOTE_NUMBER",
+          "TITLE",
+          "STATUS_ID",
+          "OPPORTUNITY",
+          "CURRENCY_ID",
+          "ASSIGNED_BY_ID",
+          "DEAL_ID",
+          "COMPANY_ID",
+          "CONTACT_ID",
+          "DATE_CREATE",
+          "CLOSEDATE",
+        ],
+        order: { ID: "DESC" },
+      });
+      const quotes = (result || []).slice(0, limit).map((q) => ({
+        id: q.ID,
+        number: q.QUOTE_NUMBER,
+        title: q.TITLE,
+        stage: q.STATUS_ID,
+        amount: q.OPPORTUNITY,
+        currency: q.CURRENCY_ID,
+        assignedById: q.ASSIGNED_BY_ID,
+        dealId: q.DEAL_ID,
+        companyId: q.COMPANY_ID,
+        contactId: q.CONTACT_ID,
+        created: q.DATE_CREATE,
+        closeDate: q.CLOSEDATE,
+        url: `https://${config.bitrixDomain}/crm/quote/details/${q.ID}/`,
+      }));
+      return { content: [{ type: "text", text: JSON.stringify(quotes, null, 2) }] };
+    }
+  );
+
+  server.tool(
+    "bitrix_get_quote",
+    "Get a single Bitrix24 CRM quote (\"Estimate\") by ID: every filled-in field with its code, the label shown " +
+      "in the Bitrix UI and its type. Long texts are truncated.",
+    { quoteId: z.string() },
+    async ({ quoteId }) => {
+      const [quote, definitions] = await Promise.all([
+        callBitrix(employeeId, "crm.quote.get", { id: quoteId }),
+        callBitrix(employeeId, "crm.quote.fields"),
+      ]);
+      const fields = describeCrmFields(quote, definitions);
+      return { content: [{ type: "text", text: JSON.stringify({ id: quoteId, fields }, null, 2) }] };
+    }
+  );
+
+  server.tool(
     "bitrix_search_tickets",
     "Search support tickets (CRM deals) by keywords in the title, the customer's e-mail text (Source information), " +
       "the comment and the solution (Rješenje). Every word must appear somewhere; case and diacritics are ignored " +
